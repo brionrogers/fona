@@ -3,6 +3,39 @@
 TEXT_MESSAGE
 LONGITUDE
 LATITUDE
+LOC_ATTEMPTS=5
+LOC_TIMEOUT=5
+
+init()
+{
+	clearLog
+	sudo screen
+	
+	for(( i=0; i<$LOC_ATTEMPTS; i++ ))
+	do
+	
+		sudo screen -dmS gps -L log.txt /dev/serial0 115200
+		sudo screen -S gps -X stuff "AT"
+		
+		for(( i=0; i<$LOC_ATTEMPTS; i++ ))
+		do
+			length=$(cat /home/pi/log.txt| wc -l)
+			echo "File Length: "$length
+			if [ "$length" -eq "0"  ]; then
+					echo "Sleeping..."
+					sleep $LOC_TIMEOUT
+			else
+					break
+			fi
+			
+			if [ "$length" -eq "0"  ]; then
+				sudo pkill screen
+			fi
+		done
+	done
+	
+	
+}
 
 getSensorData()
 {
@@ -10,17 +43,19 @@ getSensorData()
 	clearLog
 	sudo screen -dmS gps -L log.txt /dev/serial0 115200
 	sudo screen -S gps -X stuff "AT+CGNSINF^M"
-	
-	WAIT_FOR_FILE_GROWTH=true
-	
-	while [ $WAIT_FOR_FILE_GROWTH -eq 0]; do
-		if [ stat --printf="%s" /home/pi/log.txt > 0 ]; then
-			sleep 1
+	echo "Outside while loop"
+	run=true
+	while $run ; do
+		echo "Inside getSensorData() Loop"
+		length=$(cat /home/pi/log.txt| wc -l)
+		echo "File Length: "$length
+		if [ "$length" -eq "0"  ]; then
+				echo "Sleeping..."
+				sleep 1
 		else
-			WAIT_FOR_FILE_GROWTH=false
+				break
 		fi
 	done
-	
 }
 
 getParsedSensorData()
@@ -213,13 +248,17 @@ sendTextMessage()
 
 sendGPSTextMessage() 
 {
-	if [ $(stat --printf="%s" /home/pi/log.txt) <= 0 ]; then
-			echo "Sleeping..."
-			sleep 3
+	while true ; do
+		echo "Inside getSensorData() Loop"
+		length=$(cat /home/pi/log.txt| wc -l)
+		echo "File Length: "$length
+		if [ "$length" -eq "0"  ]; then
+				echo "Sleeping..."
+				sleep 1
 		else
-			WAIT_FOR_FILE_GROWTH=false
+				break
 		fi
-	
+	done
 	echo "Entering sendGPSTextMessage()"
 
 	read -p "Enter a cell number: " phoneNumber
@@ -230,14 +269,26 @@ sendGPSTextMessage()
 	
 	TEXT_MESSAGE="Latitude: "$LATITUDE", Longitude: "$LONGITUDE", Altitude: "$MSL_ALTITUDE
 	echo "Text Message:"$TEXT_MESSAGE
-	#sudo screen -S gps -X stuff "AT+CMGF=1^M"
+	sudo screen -S gps -X stuff "AT+CMGF=1^M"
 	
 	echo $PHONE_NUMBER
 	echo $TEXT_MESSAGE
 	
-	#  screen -S gps -X stuff "AT+CMGS=\"$PHONE_NUMBER\"^M"
-	# sudo screen -S gps -X stuff "$TEXT_MESSAGE^M"
-	# sudo screen -S gps -X stuff "^Z"
+	# sudo screen -S gps -X stuff "AT+CMGS=\"$PHONE_NUMBER\"^M"
+	sudo screen -S gps -X stuff "AT+CMGS=\"$PHONE_NUMBER\"^M"
+	sudo screen -S gps -X stuff "$TEXT_MESSAGE^M"
+	sudo screen -S gps -X stuff "^Z"
+	
+	while true ; do
+		length=$(tail -1 /home/pi/log.txt)
+		echo "Last Line: "$length
+		if [ "$length" -eq "+CMGS: 12"  ]; then
+				echo "Sleeping..."
+				sleep 1
+		else
+				break
+		fi
+	done
 	
 	checkContinue "Continue sendGpsTextMessage"
 	closeGPSSession
