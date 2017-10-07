@@ -8,29 +8,40 @@ LOC_TIMEOUT=5
 
 init()
 {
+	close
 	clearLog
-	sudo screen
 	
 	for(( i=0; i<$LOC_ATTEMPTS; i++ ))
 	do
-	
-		sudo screen -dmS gps -L log.txt /dev/serial0 115200
-		sudo screen -S gps -X stuff "AT"
-		
-		for(( i=0; i<$LOC_ATTEMPTS; i++ ))
-		do
-			length=$(cat /home/pi/log.txt| wc -l)
-			echo "File Length: "$length
-			if [ "$length" -eq "0"  ]; then
-					echo "Sleeping..."
-					sleep $LOC_TIMEOUT
+		length=$(cat /home/pi/log.txt| wc -l)
+		if [ "$length" -eq "0"  ]; 
+			then
+				echo "how many times am i calling this?"
+				sudo screen -dmS gps -L log.txt /dev/serial0 115200
+				sudo screen -S gps -X stuff "AT^M"
+				echo "completed executing screen commands"
 			else
+				echo "Length is not zero, break out"
+				break
+		fi
+		
+		### Set initial time of file
+		LTIME=`stat -c %Z /home/pi/log.txt`
+		while true    
+		do
+			echo "inside while true"
+		   ATIME=`stat -c %Z /home/pi/log.txt`
+
+		   if [[ "$ATIME" != "$LTIME" ]]
+		   then
+				if [ $(awk '/./{line=$0} END{print line}' /home/pi/log.txt)='OK' ];
+				then
+					echo "Log.txt has changed, resuming"
+					LTIME=$ATIME
 					break
-			fi
-			
-			if [ "$length" -eq "0"  ]; then
-				sudo pkill screen
-			fi
+				fi
+		   fi
+		   sleep 5
 		done
 	done
 	
@@ -39,23 +50,34 @@ init()
 
 getSensorData()
 {
-	sudo pkill screen
+	echo "getSensorData()"
 	clearLog
-	sudo screen -dmS gps -L log.txt /dev/serial0 115200
+	
 	sudo screen -S gps -X stuff "AT+CGNSINF^M"
-	echo "Outside while loop"
-	run=true
-	while $run ; do
-		echo "Inside getSensorData() Loop"
-		length=$(cat /home/pi/log.txt| wc -l)
-		echo "File Length: "$length
-		if [ "$length" -eq "0"  ]; then
-				echo "Sleeping..."
-				sleep 1
-		else
+	
+	### Set initial time of file
+	LTIME=`stat -c %Z /home/pi/log.txt`
+	while true    
+	do
+		echo "inside while true"
+		ATIME=`stat -c %Z /home/pi/log.txt`
+
+		if [[ "$ATIME" != "$LTIME" ]]
+		then
+			if [ $(awk '/./{line=$0} END{print line}' /home/pi/log.txt)='OK' ];
+			then
+				echo "Log.txt has changed, resuming"
+				LTIME=$ATIME
 				break
+			else
+				echo "waiting for fona response to complete..."
+			fi
 		fi
+		sleep 5
 	done
+	
+	getCoords
+	
 }
 
 getParsedSensorData()
@@ -201,9 +223,16 @@ do
 	done < "$input"
 	
 	echo "Leaving getParsedSensorData()"
+	getCoords
 	closeGPSSession
 
 	
+}
+
+close()
+{
+	sudo screen -X -S gps quit
+	sudo pkill screen
 }
 
 closeGPSSession()
@@ -404,16 +433,18 @@ show_menus() {
 	echo "2) Get Parsed Sensor Data..."
 	echo "3) Send A Text Message..."
 	echo "4) Send A GPS Text Message..."
+	echo "5) Initialize the Fona..."
 }
 
 read_options(){
 	local choice
-	read -p "Enter choice [ 1 - 4 ] " choice
+	read -p "Enter choice [ 1 - 5 ] " choice
 	case $choice in
 		[1]* ) getSensorData; break;;
         [2]* ) getParsedSensorData; break;;
 		[3]* ) sendTextMessage; break;;
 		[4]* ) sendGPSTextMessage; break;;
+		[5]* ) init; break;;
         * ) echo "Please answer yes or no.";;
 	esac
 }
